@@ -1,0 +1,22 @@
+[package]
+name = "cdk-signatory-trezor"
+version = "0.1.0"
+edition = "2024"
+authors = ["Tomas Martykan"]
+description = "CDK signatory implementation for Trezor"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+cdk-common = { path = "../cdk/crates/cdk-common", version = "=0.13.0", default-features = false }
+cdk-signatory = { path = "../cdk/crates/cdk-signatory", version = "=0.13.0", default-features = true }
+clap = { version = "4.5.31", features = ["derive"] }
+prost = "0.14"
+tokio = { version = "1", features = ["full"] }
+tonic = { version = "0.13.1", features = ["tls-ring", "codegen", "prost", "transport"], default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+trezor-client = { path = "../trezor-firmware/rust/trezor-client", version = "=0.1.5", features = ["cashu"] }
+
+[build-dependencies]
+tonic-build = { version = "0.13.1", features = ["prost"] }
