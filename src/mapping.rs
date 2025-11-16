@@ -1,8 +1,8 @@
 use anyhow::Result;
-use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Id, MintKeySet, Proof};
+use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Id, Keys, Proof};
 use cdk_common::{Amount, BlindSignatureDleq, Error, PublicKey, SecretKey};
-use cdk_signatory::signatory::{RotateKeyArguments, Signatory, SignatoryKeySet, SignatoryKeysets};
-use trezor_client::{Trezor, TrezorResponse, protos};
+use cdk_signatory::signatory::{SignatoryKeySet, SignatoryKeysets};
+use trezor_client::{TrezorResponse, protos};
 
 /// Trait for converting Trezor protobuf types to CDK types.
 ///
@@ -42,14 +42,12 @@ impl TryIntoCdk<BlindSignature> for protos::BlindSignature {
     }
 }
 
-impl TryIntoCdk<Vec<BlindSignature>>
-    for TrezorResponse<'_, protos::CashuBlindSignResponse, protos::CashuBlindSignResponse>
-{
+impl TryIntoCdk<Vec<BlindSignature>> for protos::CashuBlindSignResponse {
     fn try_into_cdk(self) -> Result<Vec<BlindSignature>, Error> {
-        match self {
-            TrezorResponse::Ok(res) => res.sigs.into_iter().map(|sig| sig.try_into_cdk()).collect(),
-            _ => Err(Error::Custom("Trezor operation failed".to_string())),
-        }
+        self.sigs
+            .into_iter()
+            .map(|sig| sig.try_into_cdk())
+            .collect()
     }
 }
 
@@ -59,6 +57,78 @@ impl TryIntoCdk<protos::BlindedMessage> for BlindedMessage {
             amount: Some(self.amount.into()),
             keyset_id: Some(self.keyset_id.to_bytes()),
             blinded_secret: Some(self.blinded_secret.to_bytes().to_vec()),
+            special_fields: Default::default(),
+        })
+    }
+}
+
+// Convert from Trezor protos to CDK types for reading keysets
+impl TryIntoCdk<SignatoryKeysets> for protos::SignatoryKeysets {
+    fn try_into_cdk(self) -> Result<SignatoryKeysets, Error> {
+        Ok(SignatoryKeysets {
+            pubkey: PublicKey::from_slice(&required(self.pubkey, "pubkey")?)?,
+            keysets: self
+                .keysets
+                .into_iter()
+                .map(|ks| ks.try_into_cdk())
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+impl TryIntoCdk<SignatoryKeySet> for protos::KeySet {
+    fn try_into_cdk(self) -> Result<SignatoryKeySet, Error> {
+        let unit = required(self.unit.into_option(), "unit")?;
+        let currency_unit = match unit.currency_unit {
+            Some(protos::currency_unit::Currency_unit::Unit(u)) => {
+                match u.enum_value_or_default() {
+                    protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_SAT => CurrencyUnit::Sat,
+                    protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_MSAT => CurrencyUnit::Msat,
+                    protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_USD => CurrencyUnit::Usd,
+                    protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_EUR => CurrencyUnit::Eur,
+                    protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_AUTH => CurrencyUnit::Auth,
+                    _ => return Err(Error::UnsupportedUnit),
+                }
+            }
+            Some(protos::currency_unit::Currency_unit::CustomUnit(s)) => CurrencyUnit::Custom(s),
+            err => {
+                return Err(Error::Custom(
+                    format!("missing or invalid currency unit: {:?}", err).to_string(),
+                ));
+            }
+        };
+
+        let keys_proto = required(self.keys.into_option(), "keys")?;
+        let keys_map: std::collections::BTreeMap<Amount, PublicKey> = keys_proto
+            .keys
+            .into_iter()
+            .map(|(amount, pubkey_bytes)| {
+                Ok((Amount::from(amount), PublicKey::from_slice(&pubkey_bytes)?))
+            })
+            .collect::<Result<_, Error>>()?;
+
+        let amounts: Vec<u64> = keys_map.keys().map(|a| (*a).into()).collect();
+
+        Ok(SignatoryKeySet {
+            id: Id::from_bytes(&required(self.id, "id")?)?,
+            unit: currency_unit,
+            active: required(self.active, "active")?,
+            keys: Keys::new(keys_map),
+            amounts,
+            input_fee_ppk: required(self.input_fee_ppk, "input_fee_ppk")?,
+            final_expiry: self.final_expiry,
+        })
+    }
+}
+
+// Convert from CDK types to Trezor protos for writing
+impl TryIntoCdk<protos::Proof> for Proof {
+    fn try_into_cdk(self) -> Result<protos::Proof, Error> {
+        Ok(protos::Proof {
+            amount: Some(self.amount.into()),
+            keyset_id: Some(self.keyset_id.to_bytes()),
+            secret: Some(self.secret.as_bytes().to_vec()),
+            c: Some(self.c.to_bytes().to_vec()),
             special_fields: Default::default(),
         })
     }

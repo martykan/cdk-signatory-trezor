@@ -2,10 +2,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::mapping::TryIntoCdk;
-use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Id, MintKeySet, Proof};
-use cdk_common::{Amount, Error};
+use crate::trezor::handle_trezor_call;
+use cdk_common::Error;
+use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Proof};
 use cdk_signatory::signatory::{RotateKeyArguments, Signatory, SignatoryKeySet, SignatoryKeysets};
-use trezor_client::{Trezor, TrezorResponse, protos};
+use trezor_client::{Trezor, TrezorMessage, TrezorResponse, protos};
 
 pub struct TrezorSignatory {
     pub trezor: Arc<Mutex<Trezor>>,
@@ -35,13 +36,44 @@ impl Signatory for TrezorSignatory {
         req.set_operation(protos::Operation::OPERATION_UNSPECIFIED);
 
         let mut trezor = self.trezor.lock().await;
-        let result = trezor.call(req, Box::new(|_, m: protos::CashuBlindSignResponse| Ok(m)));
-        result.map_err(|_| Error::Internal)?.try_into_cdk()
+        let result = handle_trezor_call(
+            trezor.call(req, Box::new(|_, m: protos::CashuBlindSignResponse| Ok(m))),
+        )?;
+        result.try_into_cdk()
     }
 
-    async fn verify_proofs(&self, proofs: Vec<Proof>) -> Result<(), Error> {}
+    async fn verify_proofs(&self, proofs: Vec<Proof>) -> Result<(), Error> {
+        let mut req = protos::CashuVerifyProofs::new();
+        let mut proofs_msg = protos::Proofs::new();
+        proofs_msg.proof = proofs
+            .into_iter()
+            .map(|p| p.try_into_cdk())
+            .collect::<Result<Vec<_>, Error>>()?;
+        proofs_msg.set_operation(protos::Operation::OPERATION_UNSPECIFIED);
+        proofs_msg.set_correlation_id("verify".to_string());
+        req.proofs = ::protobuf::MessageField::some(proofs_msg);
 
-    async fn keysets(&self) -> Result<SignatoryKeysets, Error> {}
+        let mut trezor = self.trezor.lock().await;
+        handle_trezor_call(trezor.call(req, Box::new(|_, m: protos::Success| Ok(m))))?;
+        Ok(())
+    }
 
-    async fn rotate_keyset(&self, args: RotateKeyArguments) -> Result<SignatoryKeySet, Error> {}
+    async fn keysets(&self) -> Result<SignatoryKeysets, Error> {
+        let req = protos::CashuGetKeysets::new();
+
+        let mut trezor = self.trezor.lock().await;
+        let result = handle_trezor_call(
+            trezor.call(req, Box::new(|_, m: protos::CashuGetKeysetsResponse| Ok(m))),
+        )?;
+
+        let keysets = result
+            .keysets
+            .into_option()
+            .ok_or(Error::Custom("missing keysets in response".to_string()))?;
+        keysets.try_into_cdk()
+    }
+
+    async fn rotate_keyset(&self, _args: RotateKeyArguments) -> Result<SignatoryKeySet, Error> {
+        Err(Error::Custom("Operation not supported".to_string()))
+    }
 }

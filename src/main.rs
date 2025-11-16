@@ -14,6 +14,7 @@ use crate::signatory::TrezorSignatory;
 
 mod mapping;
 mod signatory;
+mod trezor;
 
 #[derive(Parser)]
 #[command(name = "cdk-signatory-trezor")]

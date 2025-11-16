@@ -9,9 +9,10 @@ description = "CDK signatory implementation for Trezor"
 anyhow = "1"
 async-trait = "0.1"
 cdk-common = { path = "../cdk/crates/cdk-common", version = "=0.13.0", default-features = false }
-cdk-signatory = { path = "../cdk/crates/cdk-signatory", version = "=0.13.0", default-features = true }
+cdk-signatory = { path = "../cdk/crates/cdk-signatory", version = "=0.13.0", default-features = false, features = ["grpc"] }
 clap = { version = "4.5.31", features = ["derive"] }
 prost = "0.14"
+protobuf = "=3.7.2"
 tokio = { version = "1", features = ["full"] }
 tonic = { version = "0.13.1", features = ["tls-ring", "codegen", "prost", "transport"], default-features = false }
 tracing = "0.1"
