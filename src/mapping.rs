@@ -2,6 +2,7 @@ use anyhow::Result;
 use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Id, Keys, Proof};
 use cdk_common::{Amount, BlindSignatureDleq, Error, PublicKey, SecretKey};
 use cdk_signatory::signatory::{SignatoryKeySet, SignatoryKeysets};
+use protobuf::MessageField;
 use trezor_client::{TrezorResponse, protos};
 
 /// Trait for converting Trezor protobuf types to CDK types.
@@ -62,7 +63,52 @@ impl TryIntoCdk<protos::BlindedMessage> for BlindedMessage {
     }
 }
 
-// Convert from Trezor protos to CDK types for reading keysets
+// Convert to/from Trezor protos to CDK types for keysets
+impl TryIntoCdk<protos::KeySet> for SignatoryKeySet {
+    fn try_into_cdk(self) -> Result<protos::KeySet, Error> {
+        Ok(protos::KeySet {
+            id: Some(self.id.to_bytes()),
+            unit: MessageField::some(protos::CurrencyUnit {
+                currency_unit: Some(match self.unit {
+                    CurrencyUnit::Sat => protos::currency_unit::Currency_unit::Unit(
+                        protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_SAT.into(),
+                    ),
+                    CurrencyUnit::Msat => protos::currency_unit::Currency_unit::Unit(
+                        protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_MSAT.into(),
+                    ),
+                    CurrencyUnit::Usd => protos::currency_unit::Currency_unit::Unit(
+                        protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_USD.into(),
+                    ),
+                    CurrencyUnit::Eur => protos::currency_unit::Currency_unit::Unit(
+                        protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_EUR.into(),
+                    ),
+                    CurrencyUnit::Auth => protos::currency_unit::Currency_unit::Unit(
+                        protos::CurrencyUnitType::CURRENCY_UNIT_TYPE_AUTH.into(),
+                    ),
+                    CurrencyUnit::Custom(s) => protos::currency_unit::Currency_unit::CustomUnit(s),
+                    _ => {
+                        return Err(Error::UnsupportedUnit);
+                    }
+                }),
+                special_fields: Default::default(),
+            }),
+            active: Some(self.active),
+            input_fee_ppk: Some(self.input_fee_ppk),
+            keys: MessageField::some(protos::Keys {
+                keys: self
+                    .keys
+                    .iter()
+                    .map(|(amount, pk)| (amount.to_u64(), pk.to_bytes().to_vec()))
+                    .collect(),
+                special_fields: Default::default(),
+            }),
+            final_expiry: self.final_expiry,
+            version: Some(1),
+            special_fields: Default::default(),
+        })
+    }
+}
+
 impl TryIntoCdk<SignatoryKeysets> for protos::SignatoryKeysets {
     fn try_into_cdk(self) -> Result<SignatoryKeysets, Error> {
         Ok(SignatoryKeysets {

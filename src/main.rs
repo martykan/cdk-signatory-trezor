@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Result;
+use cdk_signatory::signatory::Signatory;
 use cdk_signatory::start_grpc_server;
 use clap::Parser;
 use tokio::sync::Mutex;
@@ -48,7 +49,8 @@ pub async fn main() -> Result<()> {
     let mut trezor = trezor_client::unique(false)?;
     trezor.init_device(None)?;
 
-    let signatory = TrezorSignatory::new(Arc::new(Mutex::new(trezor))).await?;
+    let mut signatory = TrezorSignatory::new(Arc::new(Mutex::new(trezor))).await?;
+    signatory.update_cached_keysets().await?;
 
     let socket_addr = SocketAddr::from_str(&format!("{}:{}", args.listen_addr, args.listen_port))?;
 
