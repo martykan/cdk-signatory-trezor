@@ -1,13 +1,15 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 
 use crate::mapping::TryIntoCdk;
 use crate::trezor::handle_trezor_call;
-use cdk_common::nuts::{BlindSignature, BlindedMessage, CurrencyUnit, Proof};
+use cdk_common::nuts::{BlindSignature, BlindedMessage, Proof};
 use cdk_common::{Error, Keys};
 use cdk_signatory::signatory::{RotateKeyArguments, Signatory, SignatoryKeySet, SignatoryKeysets};
-use trezor_client::{Trezor, TrezorMessage, TrezorResponse, protos};
+use trezor_client::{Trezor, protos};
+
+const CACHE_ENABLED: bool = true;
 
 #[derive(Clone)]
 pub struct TrezorSignatory {
@@ -61,12 +63,17 @@ impl Signatory for TrezorSignatory {
             .map(|bm| bm.try_into_cdk())
             .collect::<Result<Vec<_>, Error>>()?;
         req.set_operation(protos::Operation::OPERATION_UNSPECIFIED);
-        req.keysets = self.get_cached_keysets_proto()?;
+        if CACHE_ENABLED {
+            req.keysets = self.get_cached_keysets_proto()?;
+        }
 
         let mut trezor = self.trezor.lock().await;
+        let duration = Instant::now();
         let result = handle_trezor_call(
             trezor.call(req, Box::new(|_, m: protos::CashuBlindSignResponse| Ok(m))),
         )?;
+        let elapsed = duration.elapsed();
+        println!("Trezor blind_sign took {} ms", elapsed.as_millis(),);
         result.try_into_cdk()
     }
 
@@ -80,10 +87,15 @@ impl Signatory for TrezorSignatory {
         proofs_msg.set_operation(protos::Operation::OPERATION_UNSPECIFIED);
         proofs_msg.set_correlation_id("verify".to_string());
         req.proofs = ::protobuf::MessageField::some(proofs_msg);
-        req.keysets = self.get_cached_keysets_proto()?;
+        if CACHE_ENABLED {
+            req.keysets = self.get_cached_keysets_proto()?;
+        }
 
         let mut trezor = self.trezor.lock().await;
+        let duration = Instant::now();
         handle_trezor_call(trezor.call(req, Box::new(|_, m: protos::Success| Ok(m))))?;
+        let elapsed = duration.elapsed();
+        println!("Trezor verify_proofs took {} ms", elapsed.as_millis(),);
         Ok(())
     }
 

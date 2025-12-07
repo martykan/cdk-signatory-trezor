@@ -19,5 +19,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 trezor-client = { path = "../trezor-firmware/rust/trezor-client", version = "=0.1.5", features = ["cashu"] }
 
+[dev-dependencies]
+hdrhistogram = { version = "7.5.4" }
+tokio = { version = "1", features = ["full"] }
+cdk = { path = "../cdk/crates/cdk" }
+cdk-sqlite = { path = "../cdk/crates/cdk-sqlite" }
+bip39 = "2.0"
+futures = "0.3"
+
+[[bench]]
+name = "operations"
+harness = false
+path = "benches/operations.rs"
+
 [build-dependencies]
 tonic-build = { version = "0.13.1", features = ["prost"] }
